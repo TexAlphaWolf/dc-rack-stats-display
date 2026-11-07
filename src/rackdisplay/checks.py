@@ -34,6 +34,7 @@ def _http(spec: CheckSpec, timeout: float) -> Service:
             code = response.status
     except urllib.error.HTTPError as error:
         code = error.code
+        error.close()  # an unclosed HTTPError is a ResourceWarning on Python 3.14
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         reason = getattr(error, "reason", error)
         return Service(spec.name, spec.target, False, None, str(reason))

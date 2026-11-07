@@ -36,6 +36,7 @@ def get_json(url: str, timeout: float = 4.0, verify: bool = True) -> Any:
         with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
             body = response.read(MAX_BODY + 1)
     except urllib.error.HTTPError as error:
+        error.close()  # an unclosed HTTPError is a ResourceWarning on Python 3.14
         raise FetchError(f"{url}: HTTP {error.code}") from error
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         reason = getattr(error, "reason", error)

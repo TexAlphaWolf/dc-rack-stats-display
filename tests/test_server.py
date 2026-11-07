@@ -40,7 +40,8 @@ class Running:
             with urllib.request.urlopen(request, timeout=5) as response:
                 return response.status, dict(response.headers), response.read()
         except urllib.error.HTTPError as error:
-            return error.code, dict(error.headers), error.read()
+            with error:
+                return error.code, dict(error.headers), error.read()
 
     def close(self) -> None:
         self.collector.stop()
