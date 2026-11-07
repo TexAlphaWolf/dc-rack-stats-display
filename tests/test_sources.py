@@ -343,6 +343,20 @@ def prom_cfg(url: str) -> Config:
     return cfg
 
 
+def test_the_same_filesystem_is_listed_once(fake_http) -> None:  # type: ignore[no-untyped-def]
+    mounts = ("/", "/mnt/host/distro", "/usr/lib/wsl")  # one filesystem, three mount points
+    server = fake_prometheus(
+        fake_http,
+        {
+            promsrc._LINUX_DISK[0]: vector(*(({**LIN, "mountpoint": m}, 1000) for m in mounts)),
+            promsrc._LINUX_DISK[1]: vector(*(({**LIN, "mountpoint": m}, 300) for m in mounts)),
+        },
+    )
+    snap = make_source(prom_cfg(server.url)).collect()
+    srv = next(h for h in snap.hosts if h.name == "srv")
+    assert [d.mount for d in srv.disks] == ["/"]
+
+
 def test_prometheus_source(fake_http) -> None:  # type: ignore[no-untyped-def]
     server = fake_prometheus(fake_http)
     snap = make_source(prom_cfg(server.url)).collect()
@@ -432,3 +446,28 @@ def test_make_source_picks_by_type() -> None:
         ).__name__
         == "PrometheusSource"
     )
+
+
+def test_prometheus_queries_run_at_the_same_time(fake_http, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import threading
+    import time
+
+    server = fake_prometheus(fake_http)
+    real = promsrc.prom_query
+    lock = threading.Lock()
+    running = peak = 0
+
+    def slow(base: str, expr: str, timeout: float):  # type: ignore[no-untyped-def]
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.05)  # a slow round trip, like "localhost" on Windows
+        with lock:
+            running -= 1
+        return real(base, expr, timeout)
+
+    monkeypatch.setattr(promsrc, "prom_query", slow)
+    snap = make_source(prom_cfg(server.url)).collect()
+    assert len(snap.hosts) == 2 and snap.problems == []
+    assert peak >= 4  # one after the other would never overlap

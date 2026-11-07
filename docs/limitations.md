@@ -8,3 +8,6 @@
 - Container CPU/memory per container is only available through the Prometheus source (cAdvisor);
   the Docker source lists names and states.
 - The demo data is made up; do not read anything into it.
+- On Windows, a URL with `localhost` can add seconds to every request (the name is tried over IPv6
+  first). Use `127.0.0.1`: in one measurement a full snapshot took 10.5 s with `localhost` and 0.3 s
+  with `127.0.0.1`. `rackdisplay check-config` warns about it.

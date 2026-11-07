@@ -18,7 +18,7 @@ screens = ["overview", "storage", "network", "containers", "power"]  # empty one
 # "demo"       made-up data
 type = "local"
 # name = "rack-server"   # shown instead of the machine's own name
-# prometheus_url = "http://localhost:9090"
+# prometheus_url = "http://127.0.0.1:9090"   # on Windows prefer 127.0.0.1 over localhost (see docs)
 
 [thresholds]          # where OK becomes WARN, and WARN becomes CRIT
 cpu_warn = 0.80

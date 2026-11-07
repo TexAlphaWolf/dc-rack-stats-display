@@ -46,6 +46,24 @@ class Hostile:
         return finalize(snap, self.cfg.thresholds)
 
 
+class ManyDisks:
+    """More disks than any small screen can show."""
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+
+    def collect(self) -> Snapshot:
+        import time
+
+        from rackdisplay.model import Disk
+
+        disks = [Disk(f"/data/{i}", 100 * (i + 1), 2000) for i in range(30)]
+        snap = Snapshot(
+            ts=time.time(), source="test", hosts=[Host("big", cpu=0.1, mem=0.2, disks=disks)]
+        )
+        return finalize(snap, self.cfg.thresholds)
+
+
 def serve(cfg: Config, source: object) -> tuple[object, Collector, str]:
     cfg.server.port = 0
     collector = Collector(source, 60)  # type: ignore[arg-type]
@@ -134,5 +152,21 @@ def test_screens_rotate_and_can_be_stepped(browser: object, demo_cfg: Config) ->
         sync_api.expect(page.locator("#dots .on")).not_to_have_text("overview", timeout=8000)
         page.keyboard.press("ArrowLeft")
         assert page.inner_text("#dots .on").lower() == "overview"
+    finally:
+        stop(server, collector)
+
+
+def test_a_long_disk_list_is_cut_to_fit_the_screen(browser: object, demo_cfg: Config) -> None:
+    server, collector, base = serve(demo_cfg, ManyDisks(demo_cfg))
+    try:
+        page = browser.new_page(viewport={"width": 800, "height": 480})  # type: ignore[attr-defined]
+        page.goto(f"{base}/?screen=storage")
+        page.wait_for_selector("#screen .rows > *")
+        assert page.evaluate(
+            "document.getElementById('screen').scrollHeight"
+            " <= document.getElementById('screen').clientHeight + 1"
+        )
+        assert "more" in page.inner_text("#screen")
+        assert page.locator("#screen .rows > *").count() < 30
     finally:
         stop(server, collector)

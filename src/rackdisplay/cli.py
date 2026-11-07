@@ -90,6 +90,13 @@ def cmd_check_config(args: argparse.Namespace) -> int:
     cfg = _config(args)
     print(f"ok: source '{cfg.source.type}', {len(cfg.checks)} checks, {len(cfg.pdu)} power meters, "
           f"{len(cfg.tiles)} custom tiles, screens {', '.join(cfg.display.screens)}")  # fmt: skip
+    urls = [cfg.source.prometheus_url, cfg.docker.url, *(p.url for p in cfg.pdu if p.url)]
+    if sys.platform == "win32" and any("//localhost" in url for url in urls):
+        print(
+            "note: on Windows 'localhost' can add seconds to every request; "
+            "use 127.0.0.1 in the URLs if the page says NO DATA or is slow",
+            file=sys.stderr,
+        )
     return 0
 
 

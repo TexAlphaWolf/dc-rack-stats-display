@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from ..checks import run_checks
 from ..config import Config
@@ -39,10 +40,18 @@ _WINDOWS = {
     "cpu": '1 - avg by (instance, host) (rate(windows_cpu_time_total{mode="idle"}[2m]))',
     "mem_total": "windows_memory_physical_total_bytes",
     "mem_avail": "windows_memory_available_bytes",
-    "uptime": "time() - windows_system_boot_time_timestamp_seconds",
+    # the boot time is exposed under different names depending on the windows_exporter version
+    "uptime": "time() - (windows_system_boot_time_timestamp_seconds"
+    " or windows_system_boot_time_timestamp or windows_os_boot_time_timestamp_seconds"
+    " or windows_system_system_up_time)",
     "rx": "sum by (instance, host) (rate(windows_net_bytes_received_total[2m]))",
     "tx": "sum by (instance, host) (rate(windows_net_bytes_sent_total[2m]))",
 }
+_UP = 'up{job=~"node|windows"}'
+_CONT_MEM = 'sum by (name) (container_memory_working_set_bytes{name!=""})'
+_CONT_CPU = 'sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[2m]))'
+_PROBE_LATENCY = 'probe_duration_seconds{job=~"probe-.*"}'
+_PROBE_OK = 'probe_success{job=~"probe-.*"}'
 _FS = f'fstype=~"{_REAL_FS}", mountpoint!~"{_SKIP_MOUNTS}"'
 _LINUX_DISK = (
     f"node_filesystem_size_bytes{{{_FS}}}",
@@ -70,9 +79,30 @@ class PrometheusSource:
         self.cfg = cfg
         self.base = cfg.source.prometheus_url
         self.timeout = cfg.source.timeout
+        self._cache: dict[str, Rows | FetchError] = {}
+
+    def _prefetch(self, exprs: list[str]) -> None:
+        """Run independent queries at the same time. One round trip can cost a lot (a slow
+        name lookup for "localhost" on Windows, a busy Prometheus); thirty of them one after
+        the other made a snapshot a minute old before it was finished."""
+        todo = [e for e in dict.fromkeys(exprs) if e not in self._cache]
+
+        def run(expr: str) -> Rows | FetchError:
+            try:
+                return prom_query(self.base, expr, self.timeout)
+            except FetchError as error:
+                return error
+
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(todo)))) as pool:
+            self._cache.update(zip(todo, pool.map(run, todo), strict=True))
 
     def _q(self, snap: Snapshot, what: str, expr: str) -> Rows:
         try:
+            cached = self._cache.get(expr)
+            if isinstance(cached, FetchError):
+                raise cached
+            if cached is not None:
+                return cached
             return prom_query(self.base, expr, self.timeout)
         except FetchError as error:
             message = f"prometheus {what}: {error}"
@@ -87,13 +117,28 @@ class PrometheusSource:
 
     def _hosts(self, snap: Snapshot) -> None:
         hosts: dict[Key, Host] = {}
-        for labels, value in self._q(snap, "hosts", 'up{job=~"node|windows"}'):
+        for labels, value in self._q(snap, "hosts", _UP):
             key = _key(labels)
             name = labels.get("host") or re.sub(r":\d+$", "", key[0]) or "?"
             kind = "windows" if labels.get("job") == "windows" else "linux"
             hosts[key] = Host(name=name, kind=kind, up=value >= 1)
         if not hosts:
             return
+        wanted = {h.kind for h in hosts.values()}
+        self._prefetch(
+            [
+                e
+                for k, qs in (("linux", _LINUX), ("windows", _WINDOWS))
+                if k in wanted
+                for e in qs.values()
+            ]
+            + [
+                e
+                for k, dq in (("linux", _LINUX_DISK), ("windows", _WINDOWS_DISK))
+                if k in wanted
+                for e in dq[:2]
+            ]
+        )
         for kind, queries, disk_queries in (
             ("linux", _LINUX, _LINUX_DISK),
             ("windows", _WINDOWS, _WINDOWS_DISK),
@@ -126,26 +171,25 @@ class PrometheusSource:
     ) -> None:
         sizes = {(*_key(lb), lb.get(label, "?")): v for lb, v in self._q(snap, "disks", size_q)}
         avails = {(*_key(lb), lb.get(label, "?")): v for lb, v in self._q(snap, "disks", avail_q)}
-        for (instance, host_label, mount), size in sorted(sizes.items()):
+        # The same filesystem is often visible under several mount points (bind mounts, the
+        # WSL and Docker Desktop VMs): keep one entry per size/usage pair, the shortest mount.
+        seen: set[tuple[Key, float, float]] = set()
+        for (instance, host_label, mount), size in sorted(
+            sizes.items(), key=lambda item: (item[0][0], item[0][1], len(item[0][2]), item[0][2])
+        ):
             key = (instance, host_label)
             if key in mine and size > 0 and (instance, host_label, mount) in avails:
                 free = avails[(instance, host_label, mount)]
+                if (key, size, free) in seen:
+                    continue
+                seen.add((key, size, free))
                 hosts[key].disks.append(Disk(mount, size - free, size))
 
     def _containers(self, snap: Snapshot) -> None:
-        mem = self._q(
-            snap, "containers", 'sum by (name) (container_memory_working_set_bytes{name!=""})'
-        )
+        mem = self._q(snap, "containers", _CONT_MEM)
         if not mem:
             return
-        cpu = {
-            lb.get("name", ""): v
-            for lb, v in self._q(
-                snap,
-                "containers",
-                'sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[2m]))',
-            )
-        }
+        cpu = {lb.get("name", ""): v for lb, v in self._q(snap, "containers", _CONT_CPU)}
         snap.containers_known = True
         snap.containers = sorted(
             (
@@ -156,11 +200,8 @@ class PrometheusSource:
         )
 
     def _services(self, snap: Snapshot) -> None:
-        latency = {
-            lb.get("instance", ""): v
-            for lb, v in self._q(snap, "probes", 'probe_duration_seconds{job=~"probe-.*"}')
-        }
-        for labels, value in self._q(snap, "probes", 'probe_success{job=~"probe-.*"}'):
+        latency = {lb.get("instance", ""): v for lb, v in self._q(snap, "probes", _PROBE_LATENCY)}
+        for labels, value in self._q(snap, "probes", _PROBE_OK):
             instance = labels.get("instance", "?")
             seconds = latency.get(instance)
             snap.services.append(
@@ -193,6 +234,8 @@ class PrometheusSource:
 
     def collect(self) -> Snapshot:
         snap = Snapshot(ts=time.time(), source="prometheus")
+        self._cache = {}
+        self._prefetch([_UP, _CONT_MEM, _CONT_CPU, _PROBE_LATENCY, _PROBE_OK])
         steps: list[Callable[[Snapshot], None]] = [
             self._hosts,
             self._containers,
@@ -204,6 +247,7 @@ class PrometheusSource:
         snap.services += run_checks(self.cfg.checks)
         snap.power = _power(self.cfg.pdu, snap, self.timeout)
         add_tiles(snap, self.cfg)
+        snap.ts = time.time()  # the age of the data counts from when it was complete
         return finalize(snap, self.cfg.thresholds)
 
 

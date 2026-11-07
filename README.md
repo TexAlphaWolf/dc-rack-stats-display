@@ -51,7 +51,7 @@ Data from Prometheus (also works on Windows and macOS, as long as Prometheus can
 # config.toml
 [source]
 type = "prometheus"
-prometheus_url = "http://localhost:9090"
+prometheus_url = "http://127.0.0.1:9090"   # on Windows 127.0.0.1 is much faster than localhost
 ```
 ```bash
 rackdisplay serve -c config.toml

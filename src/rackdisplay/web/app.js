@@ -147,15 +147,13 @@ const screens = {
     for (const host of s.hosts) for (const d of host.disks) disks.push({ host: host.name, ...d });
     disks.sort((a, b) => b.pct - a.pct);
     const rows = h("div", "rows");
-    const limit = 9;
-    for (const d of disks.slice(0, limit)) {
+    rows.dataset.fit = "1"; // fit() drops the rows that do not fit the screen
+    for (const d of disks.slice(0, 60)) {
       const detail = h("div", "detail");
       detail.append(h("b", "", pct(d.pct) + "%"), ` ${bytes(d.used)} / ${bytes(d.total)}`);
       rows.appendChild(row(d.status, d.mount, d.host, d.pct, detail));
     }
-    const out = [section("Disk space, fullest first"), rows];
-    if (disks.length > limit) out.push(h("div", "more", `+ ${disks.length - limit} more, all below the ones shown`));
-    return out;
+    return [section("Disk space, fullest first"), rows];
   },
 
   network(s) {
@@ -280,8 +278,28 @@ function draw() {
   else if (screenIndex >= names.length) screenIndex = 0;
   const name = names[screenIndex];
   $("screen").replaceChildren(...screens[name](snap));
+  fit();
   const dots = $("dots");
   dots.replaceChildren(...names.map((n) => h("span", n === name ? "on" : "", n)));
+}
+
+// A list that is longer than the screen loses its last rows instead of running off the bottom.
+function fit() {
+  const main = $("screen");
+  for (const rows of main.querySelectorAll(".rows[data-fit]")) {
+    const total = rows.children.length;
+    let shown = total;
+    let more = null;
+    while (main.scrollHeight > main.clientHeight + 1 && shown > 1) {
+      rows.lastElementChild.remove();
+      shown -= 1;
+      if (!more) {
+        more = h("div", "more", "");
+        rows.after(more);
+      }
+      more.textContent = `+ ${total - shown} more, the fullest are shown`;
+    }
+  }
 }
 
 function next(step) {

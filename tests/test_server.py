@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -253,6 +254,19 @@ def test_cli_snapshot_lcd_and_check_config(
     cfg.write_text("[display]\ntitle = 'T'\n")
     assert main(["check-config", "-c", str(cfg)]) == 0
     assert "ok:" in capsys.readouterr().out
+
+
+def test_check_config_warns_about_localhost_on_windows(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("[source]\ntype = 'prometheus'\nprometheus_url = 'http://localhost:9090'\n")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert main(["check-config", "-c", str(cfg)]) == 0
+    assert "127.0.0.1" not in capsys.readouterr().err
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert main(["check-config", "-c", str(cfg)]) == 0
+    assert "127.0.0.1" in capsys.readouterr().err
 
 
 def test_cli_errors(tmp_path: Path) -> None:
