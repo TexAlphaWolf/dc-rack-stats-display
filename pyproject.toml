@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rackdisplay"
-version = "1.0.0"
+version = "1.0.1"
 description = "Live rack statistics for a wall display: a kiosk web page and compact frames for small LCD/OLED screens."
 readme = "README.md"
 license = { text = "MIT" }

@@ -106,7 +106,7 @@ See [docs/hardware.md](docs/hardware.md) for the Raspberry Pi kiosk setup and th
 ```bash
 pip install -e ".[dev]"
 ruff check . && ruff format --check . && mypy
-pytest -m "not browser" --cov      # 85 tests, ~98% coverage
+pytest -m "not browser" --cov      # 85 tests, ~98% coverage; 5 more run in a real browser
 playwright install chromium && pytest -m browser   # the page in a real browser
 ```
 The tests use fake HTTP servers, a fake Docker engine on a Unix socket and a fake `/proc` tree;

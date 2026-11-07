@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from rackdisplay import metrics
+from rackdisplay import __version__, metrics
 from rackdisplay.cli import main
 from rackdisplay.config import Config
 from rackdisplay.model import Host, Snapshot, finalize
@@ -317,7 +317,7 @@ def test_python_dash_m_entry_point() -> None:
         text=True,
         check=True,
     )
-    assert "rackdisplay 1.0.0" in out.stdout
+    assert f"rackdisplay {__version__}" in out.stdout
 
 
 def test_a_dropped_connection_is_not_an_error(
