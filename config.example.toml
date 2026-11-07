@@ -1,0 +1,74 @@
+# rackdisplay configuration. Every section is optional; this file shows all of them.
+# Check it with:  rackdisplay check-config -c config.toml
+
+[server]
+host = "127.0.0.1"   # "0.0.0.0" to reach it from another device (then set a token)
+port = 8080
+interval = 5         # seconds between collections
+token = ""           # when set, /api and /metrics need it; or set RACKDISPLAY_TOKEN
+
+[display]
+title = "Rack"
+rotate_seconds = 15
+screens = ["overview", "storage", "network", "containers", "power"]  # empty ones are skipped
+
+[source]
+# "local"      this machine, read from /proc and /sys (Linux)
+# "prometheus" everything a Prometheus server (dc-monitoring-stack) knows: any number of hosts
+# "demo"       made-up data
+type = "local"
+# name = "rack-server"   # shown instead of the machine's own name
+# prometheus_url = "http://localhost:9090"
+
+[thresholds]          # where OK becomes WARN, and WARN becomes CRIT
+cpu_warn = 0.80
+cpu_crit = 0.95
+mem_warn = 0.85
+mem_crit = 0.95
+disk_warn = 0.85
+disk_crit = 0.95
+temp_warn = 70
+temp_crit = 85
+
+# Disks of this machine (local source). Without any, only "/" is shown.
+[[disks]]
+mount = "/"
+name = "root"
+
+# Containers from the Docker engine. Prefer a read-only socket proxy to the raw socket
+# (see docs/configuration.md): access to docker.sock is access to the whole machine.
+[docker]
+enabled = false
+socket = "/var/run/docker.sock"
+# url = "http://127.0.0.1:2375"
+
+# Reachability checks for things that are not hosts.
+[[checks]]
+name = "Router"
+type = "tcp"
+target = "192.168.1.1:443"
+
+[[checks]]
+name = "NAS web"
+type = "http"
+target = "https://nas.lan"
+verify_tls = false
+
+# Power: a Shelly or Tasmota plug, or any HTTP endpoint returning JSON.
+[[pdu]]
+name = "Server"
+type = "shelly"
+url = "http://192.168.1.50"
+
+[[pdu]]
+name = "NAS"
+type = "http-json"
+url = "http://192.168.1.51/api/power"
+path = "data.watts"
+
+# Any number you can query from Prometheus, with optional limits.
+# Needs [source] prometheus_url (also with the local source).
+# [[tiles]]
+# name = "Switch ports up"
+# query = 'count(ifOperStatus{job="snmp"} == 1)'
+# warn_below = 12

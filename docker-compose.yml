@@ -1,0 +1,50 @@
+# Rack display for a Linux server.
+#
+#   docker compose up -d                       machine stats, checks, power
+#   docker compose --profile containers up -d  also list the containers (see the note below)
+#
+# Set RACKDISPLAY_BIND=0.0.0.0 (and RACKDISPLAY_TOKEN) to reach it from the display.
+# Open http://<server>:8080/ on the display. Edit config.toml first (start from
+# config.example.toml); the compose file mounts it read-only.
+services:
+  rackdisplay:
+    build: .
+    image: rackdisplay
+    restart: unless-stopped
+    command: ["serve", "--host", "${RACKDISPLAY_BIND:-127.0.0.1}", "-c", "/etc/rackdisplay/config.toml"]
+    # Host networking, because /proc/net/dev inside a container shows only the container's own
+    # interface: with it, the network figures are the machine's. The port is whatever
+    # [server] port says (8080), bound to RACKDISPLAY_BIND.
+    network_mode: host
+    environment:
+      RACKDISPLAY_TOKEN: "${RACKDISPLAY_TOKEN:-}"    # recommended whenever the port is on the network
+    volumes:
+      - ./config.toml:/etc/rackdisplay/config.toml:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/rootfs:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+
+  # Containers are listed through a proxy that only allows reading the container list.
+  # Mounting /var/run/docker.sock straight into rackdisplay would give it control of the
+  # machine; with the proxy it can only see names and states. In config.toml:
+  #   [docker]
+  #   enabled = true
+  #   url = "http://127.0.0.1:2375"
+  docker-proxy:
+    profiles: ["containers"]
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2375:2375"   # only this machine can reach it
+    environment:
+      CONTAINERS: "1"     # GET /containers/json only; everything else stays refused
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

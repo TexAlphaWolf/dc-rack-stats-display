@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest --cov -m "not browser"
+
+  browser:
+    name: kiosk page in Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: playwright install --with-deps chromium
+      - run: pytest -m browser
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t rackdisplay .
+      - name: Run the container and read it back
+        run: |
+          docker run -d --name rd -p 8080:8080 rackdisplay
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' rd)" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' rd | grep -x healthy
+          curl -fsS localhost:8080/api/stats | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['hosts'])==3, d"
+          curl -fsS "localhost:8080/api/lcd.txt?cols=20&rows=4" | head -4
+          curl -fsS localhost:8080/metrics | grep -q rackdisplay_host_cpu_ratio
+      - name: The compose files are valid
+        run: |
+          cp config.example.toml config.toml
+          docker compose config --quiet
+          docker compose --profile containers config --quiet
+
+  firmware:
+    name: ESP32 sketch compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: esp32:esp32:esp32
+          platforms: |
+            - name: esp32:esp32
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          libraries: |
+            - name: U8g2
+          sketch-paths: |
+            - firmware/esp32-oled
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e . pip-audit
+      - run: pip-audit --skip-editable

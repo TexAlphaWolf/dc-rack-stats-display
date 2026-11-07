@@ -1,0 +1,14 @@
+# Defaults inside the container. Mount your own file over /etc/rackdisplay/config.toml.
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[source]
+type = "local"
+name = "rack-server"    # inside a container the machine's own name is not visible: say it here
+proc = "/host/proc"     # the host's /proc and /sys, mounted read-only by docker-compose.yml
+sys = "/host/sys"
+
+[[disks]]
+mount = "/host/rootfs"
+name = "root"

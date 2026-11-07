@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Rack display</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="frame">
+  <header>
+    <h1 id="title">Rack</h1>
+    <div id="clock" aria-live="off"></div>
+    <div id="age"></div>
+    <div id="pill" class="pill unknown">NO DATA</div>
+  </header>
+  <div id="banner" hidden></div>
+  <div id="alerts" hidden></div>
+  <main id="screen" aria-live="polite"></main>
+  <footer>
+    <nav id="dots" aria-label="Screens"></nav>
+    <div id="progress"><span></span></div>
+  </footer>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
