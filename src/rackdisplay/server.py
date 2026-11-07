@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import sys
 import threading
 import time
 import urllib.parse
@@ -189,8 +190,17 @@ class Handler(BaseHTTPRequestHandler):
             )
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # A browser that reloads or closes the tab drops the connection mid-answer. That is
+        # normal for a display, not an error: do not print a traceback for it.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 def make_server(cfg: Config, collector: Collector) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"collector": collector, "cfg": cfg})
-    server = ThreadingHTTPServer((cfg.server.host, cfg.server.port), handler)
+    server = Server((cfg.server.host, cfg.server.port), handler)
     server.daemon_threads = True
     return server

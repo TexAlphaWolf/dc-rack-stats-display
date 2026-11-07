@@ -304,3 +304,19 @@ def test_python_dash_m_entry_point() -> None:
         check=True,
     )
     assert "rackdisplay 1.0.0" in out.stdout
+
+
+def test_a_dropped_connection_is_not_an_error(
+    running: Running, capsys: pytest.CaptureFixture[str]
+) -> None:
+    server = running.server
+    try:
+        raise ConnectionAbortedError("the browser went away")
+    except ConnectionError:
+        server.handle_error(None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    assert capsys.readouterr().err == ""
+    try:
+        raise ValueError("a real bug")
+    except ValueError:
+        server.handle_error(None, ("127.0.0.1", 1))  # type: ignore[arg-type]
+    assert "a real bug" in capsys.readouterr().err
